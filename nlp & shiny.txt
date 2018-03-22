@@ -1,0 +1,63 @@
+---
+title: "Quiz 2 & 3"
+author: "Suraj Joshi"
+date: "21 March 2018"
+runtime: shiny
+output: 
+  flexdashboard::flex_dashboard:
+    orientation: rows
+---
+
+```{r}
+library(dplyr)
+library(ggplot2)
+library(shiny)
+library(shinydashboard)
+library(tm)
+library(wordcloud)
+library(RColorBrewer)
+```
+Sidebar {.sidebar}
+===================================================================
+```{r}
+
+sliderInput(inputId = "slide", label = "Choose number of words in WordCloud",min = 50,max=100,value=1)
+color=c("#999999", "#E69F00", "#56B4E9", "#009E73", "#F0E442", "#0072B2", "#D55E00", "#CC79A7")
+selectInput(inputId = "inp", label = "Choose number of words in WordCloud",choices = color)
+textInput(inputId = "text1",label = "Enter words to be excluded",value = "")
+```
+
+```{r}
+
+hotstar <- read.csv("file:///C:/Users/JOSHI/Documents/unstructure/hotstar.allreviews_Sentiments.csv")
+docs = VCorpus(VectorSource(na.omit(hotstar$Reviews)))
+
+corpus_clean=tm_map(docs, content_transformer(tolower)) 
+
+apply_regex = function (x) gsub('htt[a-z]{2}','-',x)
+x=c('https','http','httpswww stag')
+#apply_regex(x[3])
+apply_regex = function (x) gsub('[^a-zA-Z ]','',x)
+corpus_clean=tm_map(corpus_clean, content_transformer(apply_regex))
+corpus_clean=tm_map(corpus_clean,removeWords,stopwords())
+custom_stop_words=c("got","amp",'via','also','may','let','can','met','https','http','httpswww stag',"nosarunnorabbave","barunsobtisays","still","kya","pls","like","good","nice")
+corpus_clean=tm_map(corpus_clean,removeWords,custom_stop_words) 
+corpus_clean=tm_map(corpus_clean,stripWhitespace)
+
+dtm = DocumentTermMatrix(corpus_clean)
+
+df_dtm = as.data.frame(as.matrix(dtm))
+
+bow1 = sort(colSums(df_dtm),decreasing = T)
+bow1=as.data.frame(bow1)
+colnames(bow1)=c("Freq")
+bow1$words = row.names(bow1)
+row.names(bow1)<-c()
+
+```
+
+Unigram 
+============================
+```{r}
+renderPlot({wordcloud(bow1$words[1:input$slide],bow1$Freq[1:input$slide],colors = input$inp)}) 
+```
