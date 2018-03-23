@@ -1,0 +1,133 @@
+---
+title: ""
+author: "Suraj Joshi"
+date: "22 March 2018"
+output: html_document
+---
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(twitteR)
+library(dplyr)
+library(tm)
+library(corrplot)
+library(wordcloud)
+library(RWeka)
+#Twitter API Tokens
+#api_key="O9H0tjWMTKaoiJvDCw9jGJCsw"
+#api_secret="4V4DIOpixQE5Eej3kiwbm6iqFOJC5GCSqkMIkO8p7ahXigtpCV"
+#token="798856664434647042-hTfImbuty3jLhI66SlrEpYGCydRRRHb"
+#token_secret="5s4ipHW0q2kjfw0Kt5mlpqhtf1qXYCFQqAlUzNnvxTgi0"
+
+#Authentication Setup
+#auth=setup_twitter_oauth(api_key,api_secret,token,token_secret)
+```
+
+#Extracting data
+```{r}
+#tweets=searchTwitter("#datascience",n=500)
+#tweets[1:20]
+#length(tweets)
+#tweets_df=twListToDF(tweets)
+#write.csv(tweets_df,"tweets_df.csv",row.names = FALSE)
+tweets_df=read.csv("file:///C:/Users/JOSHI/Desktop/ds_tweets.csv")
+```
+
+#1.Apply text cleaning process
+```{r}
+#Creating Corpus
+docs = VCorpus(VectorSource(na.omit(tweets_df$text)))
+#inspect(docs[[1]])
+
+#Apply Regular Expression
+apply_regex=function(x) gsub('[^a-zA-Z ]','',x)
+corpus_clean=tm_map(docs, content_transformer(apply_regex))
+#inspect(corpus_clean[[1]])
+
+#Changing to Lower Case
+corpus_clean=tm_map(corpus_clean,content_transformer(tolower))
+#inspect(corpus_clean[[1]])
+
+#Apply Stopwords
+corpus_clean=tm_map(corpus_clean,removeWords,stopwords())
+#inspect(corpus_clean[[1]])
+
+##Manual removing stopwords (user defined stopwords)
+custom_stopwrds=c('datascience','httpstcodagppw','https','rt','pyth','abdsc','agoeskoes','am','a...','anal','analy','artifi','artifici','baaaack')
+corpus_clean=tm_map(corpus_clean,removeWords,custom_stopwrds)
+#inspect(corpus_clean[[1]])
+
+#Removing Whitespaces
+corpus_clean=tm_map(corpus_clean,stripWhitespace)
+#inspect(corpus_clean[[1]])
+```
+
+#Converting to DTM
+```{r}
+dtm=DocumentTermMatrix(corpus_clean)
+dtm_df=as.data.frame(as.matrix(dtm))
+dim(dtm_df)
+```
+
+#2.Create Wordcloud for unigram for top 50 words
+```{r warning=FALSE}
+##Bag of Words
+bow=as.data.frame(sort(colSums(dtm_df),decreasing=T))
+bow$Words=rownames(bow)
+names(bow)=c("Freq","Words")
+rownames(bow)=NULL
+
+##Wordcloud
+bow_top=head(bow,50)
+wordcloud(bow_top$Words,bow_top$Freq,random.order = FALSE)
+```
+
+#3.Create bigram for top 50 tokens
+```{r message=FALSE, warning=FALSE}
+#Making Bigram Dataframe
+BigramTokeniser=function(x)
+{
+  NGramTokenizer(x,Weka_control(min=2,max=2))
+}
+dtm_bigram=DocumentTermMatrix(corpus_clean,control=list(tokenize=BigramTokeniser))
+df_dtm_bigram=as.data.frame(as.matrix(dtm_bigram))
+
+#Bag Of Words
+bow_bigram = as.data.frame(sort(colSums(df_dtm_bigram), decreasing = T))
+bow_bigram$Words = rownames(bow_bigram)
+names(bow_bigram) = c('Freq','words')
+rownames(bow_bigram)=NULL
+bow_bigram_top = head(bow_bigram, 50)
+wordcloud(bow_bigram_top$words, bow_bigram_top$Freq,random.order = FALSE)
+```
+
+#4.Create a word cloud with words starting with # character i.e. word cloud for hashtags only.
+```{r message=FALSE, warning=FALSE}
+library(stringr)
+hashtags= unlist(str_extract_all(tweets_df$text, "#\\S+"))
+length(hashtags)
+hashtags_df=as.data.frame(table(hashtags))
+hashtags_df=hashtags_df%>%arrange(-Freq)
+colnames(hashtags_df)=c("Tags","Freq")
+head(hashtags_df,10)
+wordcloud(hashtags_df$Tags,hashtags_df$Freq,random.order = FALSE)
+```
+
+#5.Create DTM matrix for top 50 words and join the same with the original data. Identify the top 5 words which has highest correlation with likes column.
+```{r}
+
+dtm_df_top50=dtm_df%>%select(bow_top$Words)
+tweets_df=cbind(tweets_df,dtm_df_top50)
+tweets_df_n=tweets_df[c(2,17:66)]
+
+#Doing this because there are no TRUE values in the Favourited column. There are only false. So I am randomly adding some TRUE values to 1/5 of the Favourited column.    
+set.seed(25)
+ind = sample(1:nrow(tweets_df_n), nrow(tweets_df_n)/5)
+tweets_df_n$favorited[ind] = TRUE
+head(tweets_df_n,5)
+
+##Correlation Dataframe
+corr=as.data.frame(cor(tweets_df_n,use = "complete.obs"))
+corr_df=as.data.frame(t(corr[1,2:nrow(corr)]))
+corr_top5words=corr_df%>%mutate(abs_favorited=abs(favorited),Words=rownames(corr_df))%>%arrange(-abs_favorited)%>%select(Words,favorited)%>%head(5)
+corr_top5words
+```
